@@ -49,7 +49,7 @@ static const GUID kIID_ID3D9VkInteropTexture = {0xd56344f5, 0x8d35, 0x46fd, {0x8
 static const GUID kIID_ID3D9VkInteropDevice  = {0x2eaa4b89, 0x0107, 0x4bdb, {0x87, 0xf7, 0x0f, 0x54, 0x1c, 0x49, 0x3c, 0xe0}};
 
 #define THISCALL __attribute__((thiscall))
-#define ACMVR_VERSION "0.29.9"
+#define ACMVR_VERSION "0.30.0"
 
 // ---------------------------------------------------------------------------
 // Basic types / math
@@ -126,7 +126,7 @@ struct Config {
     int menusOnScreen, cutscenesOnScreen, largeWindow, dpiAware, weaponFollowsHand, learnHeadCallers, screenCrop;
     float gunX, gunY, gunZ, armsX, armsY, armsZ, corrPitch, corrYaw, gunScale;
     int corrOnController;
-    int armsDirect, hideCrosshair, hideHUD, fastCopy, autoCapture, showMessages, showFps, gpuWait, offAxis, offAxisV, asyncSubmit, frameCap, useDXVK, noSteamVkLayers, dxvkVulkanSubmit, vkSubmitPose, autoPlay, vkPlainEyes, vkColorSpace, vkReportSrgb, calibTap, leftHandTracking, wheelRightStick, handsOnly, lockGun, noLensEffects, alignRightHand, hudScanlineOff, taa, levelGun, dummyUse, keepFocus, earlyVr, hideIdleLeftHand, dpadOnRightClick, extraButtonsMenu, gunUpAxis, stickUpDown, heightOnGameplay, faceChords, autoResume, keepForeground, focusNudge, inputLog, hideUpperArms, dynRes, dynMin, dynMax, boostThreads, moveWithHead, overlaysOnScreen, aer, objectivesOnScreen;
+    int armsDirect, hideCrosshair, hideHUD, fastCopy, autoCapture, showMessages, showFps, gpuWait, offAxis, offAxisV, asyncSubmit, frameCap, useDXVK, noSteamVkLayers, dxvkVulkanSubmit, vkSubmitPose, autoPlay, vkPlainEyes, vkColorSpace, vkReportSrgb, calibTap, leftHandTracking, wheelRightStick, handsOnly, lockGun, noLensEffects, alignRightHand, hudScanlineOff, taa, levelGun, dummyUse, keepFocus, earlyVr, hideIdleLeftHand, dpadOnRightClick, extraButtonsMenu, gunUpAxis, stickUpDown, heightOnGameplay, faceChords, autoResume, keepForeground, focusNudge, inputLog, hideUpperArms, dynRes, dynMin, dynMax, boostThreads, moveWithHead, overlaysOnScreen, objectivesOnScreen;
     float objDown, objScale, objBack, hudScale, objRight, hudCX, hudCY;
     float dynTargetGpu, lhOff[3], rhOff[3];
     char postFxOff[256], postFxOn[64];
@@ -466,7 +466,6 @@ static void LoadConfig() {
     c.vkSubmitPose = IniInt("Renderer", "VulkanSubmitWithPose", 1);
     c.autoPlay = IniInt("Debug", "AutoPlay", 0);
     c.vkPlainEyes = IniInt("Renderer", "VulkanPlainEyeImages", 1);
-    c.aer = IniInt("Renderer", "AlternateEyes", 0);   // 1 = draw one eye per frame (Home key toggles)
     c.vkColorSpace = IniInt("Renderer", "VulkanColorSpace", 1);   // 0 = Auto (old), 1 = Gamma, 2 = Linear
     c.vkReportSrgb = IniInt("Renderer", "VulkanReportSrgb", 1);
     c.hideUpperArms = IniInt("Arms", "HideUpperArms", 1);
@@ -2300,8 +2299,6 @@ static int OpenMovies(void** out, int max, bool fullScan = false) {
     }
     return n;
 }
-static volatile LONG g_aerToggle;   // Home key flips alternate-eye rendering
-static bool AerOn();
 
 // ---- objectives / scoreboard panel (Back): move it down, shrink it and push it back ----
 // It is a Flash screen (PecanUIScreenGUScoreboard) in the game's UI shell; its display info (position, scale,
@@ -2618,27 +2615,7 @@ static void* THISCALL hkCalcSceneView(void* lp, void* fam, FVector* l, FRotator*
     float* S = (float*)((BYTE*)lp + g_offSize);
     float o0 = O[0], s0 = S[0];
     void* v0;
-    if (vm == VM_GAMEPLAY && AerOn()) {   // alternate eyes: draw only one eye this frame, the other keeps its last image
-        static int aerEye; aerEye ^= 1;
-        int e = aerEye;
-        g_inSBS = 1;
-        if (g_taaOn) { if (e == 0) TaaNextJitter(); } else g_taaJx = g_taaJy = 0;   // both eyes of a pair share a jitter
-        g_cacheValid = 0;          // full pose for this eye (no "second eye of the frame" shortcut)
-        g_curEye = e; S[0] = s0 * 0.5f; if (e == 1) O[0] = o0 + s0 * 0.5f;
-        void** vs = (void**)((BYTE*)lp + 0x8C);
-        void* savedState = *vs;
-        if (e == 1) {
-            if (!g_rightStateTried && savedState) { g_rightStateTried = 1; g_rightState = CreateRightEyeState(savedState); }
-            *vs = g_rightState;
-        }
-        void* v1 = o_CSV(lp, fam, l, r, vp, drawer, a6);
-        *vs = savedState;
-        O[0] = o0; S[0] = s0;
-        g_inSBS = 0;
-        if (g_csvSumPtr) *g_csvSumPtr += QpcMs() - tCsv0;
-        PushEye(10 + e);
-        v0 = v1;
-    } else {
+    {
     g_inSBS = 1;
     if (g_taaOn) TaaNextJitter(); else g_taaJx = g_taaJy = 0;
     g_curEye = 0; S[0] = s0 * 0.5f;
@@ -3269,15 +3246,12 @@ static const GUID kIID_ID3D11Texture2D = {0x6f15aaf2, 0xd208, 0x4e89, {0x9a, 0xb
 static const int VKR = 4;
 static ID3D9VkInteropDevice* g_vkDev;
 static int g_vk;                                      // DXVK interop path active
-static bool AerOn() {
-    return ((g_cfg.aer != 0) ^ (g_aerToggle != 0)) && g_vk && g_ringOK && g_cfg.vkSubmitPose && g_cfg.vkPlainEyes;
-}
 static VkInstance g_vkInst; static VkPhysicalDevice g_vkPhys; static VkDevice g_vkDevice; static VkQueue g_vkQueue; static uint32_t g_vkQFam;
 static IDirect3DTexture9* g_vkTex9[VKR * 2]; static IDirect3DSurface9* g_vkSurf9[VKR * 2]; static ID3D9VkInteropTexture* g_vkItex[VKR * 2];
 static VkImage g_vkImg[VKR * 2]; static VkImageLayout g_vkLayout[VKR * 2]; static IDirect3DQuery9* g_vkQ[VKR];
 static UINT g_vkEW[2], g_vkEH[2]; static RECT g_vkSrcRect[2];
 static IDirect3DTexture9* g_vkMid9[2]; static IDirect3DSurface9* g_vkMidSurf[2];   // render-target staging per eye   // per-eye image size and where it comes from in the back buffer
-static int g_vkSrc[VKR], g_vkPending[VKR]; static LONG g_vkSeq[VKR], g_vkSeqNext; static vr::HmdMatrix34_t g_vkPose[VKR], g_vkPoseE[VKR][2], g_aerPose[2]; static int g_aerHave[2];
+static int g_vkSrc[VKR], g_vkPending[VKR]; static LONG g_vkSeq[VKR], g_vkSeqNext; static vr::HmdMatrix34_t g_vkPose[VKR], g_vkPoseE[VKR][2];
 static UINT g_vkW, g_vkH, g_vkFmt, g_vkSamples;
 static IDirect3DTexture9* g_vkBlackTex9; static VkImage g_vkBlackImg; static UINT g_vkBlackFmt;
 static int g_vkTimingSet;
@@ -3384,7 +3358,6 @@ static IDirect3DTexture9* g_taaCur[2]; static IDirect3DSurface9* g_taaCurS[2];
 static IDirect3DTexture9* g_taaHist[2][2]; static IDirect3DSurface9* g_taaHistS[2][2];
 static UINT g_taaW[2], g_taaH[2]; static int g_taaFlip[2], g_taaHistOK[2], g_taaFailed;
 static Basis g_taaPrevB[2]; static int g_taaPrevOK[2];
-static int g_aerEyeRT = -1;   // render thread: the only eye drawn this frame (alternate eyes), -1 = both
 static void ReleaseTaa() {
     for (int e = 0; e < 2; e++) {
         if (g_taaCurS[e]) { g_taaCurS[e]->Release(); g_taaCurS[e] = NULL; }
@@ -3512,7 +3485,6 @@ static void TaaFrame(IDirect3DDevice9* dev, IDirect3DSurface9* bb) {
     dev->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
     bool ok = true;
     for (int e = 0; e < 2 && ok; e++) {
-        if (g_aerEyeRT >= 0 && e != g_aerEyeRT) continue;   // alternate eyes: the other eye wasn't drawn this frame
         g_taaOut[e] = TaaResolve(dev, bb, e); ok = g_taaOut[e] != NULL;
     }
     dev->SetRenderTarget(0, rt0); dev->SetDepthStencilSurface(ds);
@@ -3520,7 +3492,6 @@ static void TaaFrame(IDirect3DDevice9* dev, IDirect3DSurface9* bb) {
     g_taaSB->Apply();
     if (!ok) { g_taaOut[0] = g_taaOut[1] = NULL; g_taaHistOK[0] = g_taaHistOK[1] = 0; return; }
     for (int e = 0; e < 2; e++) {
-        if (g_aerEyeRT >= 0 && e != g_aerEyeRT) continue;
         g_taaFlip[e] ^= 1; g_taaHistOK[e] = 1; g_taaPrevB[e] = C; g_taaPrevOK[e] = 1;
     }
     InterlockedExchange(&g_taaOn, 1);
@@ -3855,12 +3826,6 @@ static void PollHotkeys() {
     if (KeyPressed(0, VK_F7)) { g_swapHotkey ^= 1; Log("Swap eyes: %d", (int)(g_swapHotkey ^ g_cfg.swapEyes)); }
     if (KeyPressed(1, VK_F8)) { InterlockedExchange(&g_recenterReq, 1); }
     if (KeyPressed(2, VK_F9)) { g_stereoOn ^= 1; Log("Stereo/head tracking: %s", g_stereoOn ? "ON" : "OFF (screen mode)"); }
-    if (KeyPressed(13, VK_HOME)) {
-        g_aerToggle ^= 1;
-        bool on = (g_cfg.aer != 0) ^ (g_aerToggle != 0);
-        Log("Alternate eyes: %s%s", on ? "ON" : "OFF", on && !AerOn() ? " (not available: needs the DXVK path with pose submit and plain eye images)" : "");
-        ShowMessage(2000, "Alternate eyes: %s", on ? "ON" : "OFF");
-    }
     if (KeyPressed(3, VK_F10)) { g_aimToggle ^= 1; Log("Controller aim: %s", ((g_cfg.controllerAim != 0) ^ (g_aimToggle != 0)) ? "ON" : "OFF (head aim)"); }
     if (KeyPressed(5, VK_F6)) { g_hudToggle ^= 1; Log("HUD toggled"); }
     if (KeyPressed(6, VK_F12)) { g_captureFull = 0; StartCapture(6); ShowMessage(2000, "Capturing 6 frames"); }
@@ -4432,8 +4397,7 @@ static void OnPresentVR(IDirect3DDevice9* dev, DWORD now) {
 
     int tag = PopEye();                    // 3 = side-by-side stereo frame, 2 = flat frame, -1 = unknown
     if (tag == 2) g_lastStereoTick = 0;
-    bool stereoFrame = (tag == 3 || tag == 10 || tag == 11) && g_stereoOn && !g_cfg.screenOnly;
-    g_aerEyeRT = tag >= 10 ? tag - 10 : -1;
+    bool stereoFrame = tag == 3 && g_stereoOn && !g_cfg.screenOnly;
     if (stereoFrame) g_lastStereoTick = now;
     bool screenMode = !g_stereoOn || g_cfg.screenOnly || !g_lastStereoTick || (now - g_lastStereoTick) > 400;
 
@@ -4462,10 +4426,7 @@ static void OnPresentVR(IDirect3DDevice9* dev, DWORD now) {
                 HRESULT hr = S_OK;
                 TaaFrame(dev, bb);
                 for (int e = 0; e < 2 && SUCCEEDED(hr); e++) {
-                    if (g_aerEyeRT >= 0 && e != g_aerEyeRT) {   // alternate eyes: this eye keeps its last image (held in the staging copy)
-                        hr = dev->StretchRect(g_vkMidSurf[e], NULL, g_vkSurf9[idx * 2 + e], NULL, D3DTEXF_NONE);
-                    }
-                    else if (g_taaOut[e]) {   // TAA result -> RT staging -> plain texture: the same last hop as the proven path
+                    if (g_taaOut[e]) {   // TAA result -> RT staging -> plain texture: the same last hop as the proven path
                         hr = dev->StretchRect(g_taaOut[e], NULL, g_vkMidSurf[e], NULL, D3DTEXF_NONE);
                         if (SUCCEEDED(hr)) hr = dev->StretchRect(g_vkMidSurf[e], NULL, g_vkSurf9[idx * 2 + e], NULL, D3DTEXF_NONE);
                     }
@@ -4494,10 +4455,7 @@ static void OnPresentVR(IDirect3DDevice9* dev, DWORD now) {
                     g_vkSrc[idx] = 1;
                     g_vkQ[idx]->Issue(D3DISSUE_END);
                     g_vkQ[idx]->GetData(NULL, 0, D3DGETDATA_FLUSH);
-                    for (int e = 0; e < 2; e++) {
-                        if (g_aerEyeRT < 0 || e == g_aerEyeRT || !g_aerHave[e]) { g_aerPose[e] = g_poppedPose; g_aerHave[e] = 1; }
-                        g_vkPoseE[idx][e] = g_aerPose[e];   // the pose each eye's image was actually drawn with
-                    }
+                    g_vkPoseE[idx][0] = g_vkPoseE[idx][1] = g_poppedPose;
                     g_vkPose[idx] = g_poppedPose; g_vkSeq[idx] = ++g_vkSeqNext; g_vkPending[idx] = 1;
                 }
             }

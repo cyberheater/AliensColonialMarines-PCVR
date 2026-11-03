@@ -16,7 +16,6 @@ The game itself stays untouched. A small launcher starts the normal `ACM.exe` an
 - **Menus, pause and cutscenes** appear on a large virtual screen.
 - **Interface sized for VR:** the HUD is shrunk towards the centre of view, and the objectives/scoreboard panel is moved lower and made smaller.
 - **Bigger pickup range and width** for the "use" prompt.
-- **Optional alternate-eye rendering** (Home key) for slower PCs.
 - **Launcher with a resolution slider** that reads the headset's resolution from SteamVR.
 
 ## Installing
@@ -59,7 +58,6 @@ To play without VR again, clear the launch options. [docs/LAUNCHER-README.txt](d
 | Key | Action |
 |---|---|
 | F1 | Toggle TAA |
-| Home | Toggle alternate-eye rendering |
 | Ctrl | Capture frames (for bug reports) |
 
 ## Settings
@@ -75,7 +73,6 @@ Settings live in `ACMVR\acmvr.ini`. [config/acmvr.ini](config/acmvr.ini) is a co
 | `[VR]` | `ObjectivesMoveRight` | 110 | Keeps the objectives panel centred |
 | `[VR]` | `ObjectivesOnScreen` | 0 | 1 = show objectives on the flat virtual screen instead |
 | `[Controls]` | `MoveWithHead` | 1 | 0 = walk where the gun points |
-| `[Renderer]` | `AlternateEyes` | 0 | 1 = draw one eye per frame (faster, less smooth) |
 | `[Graphics]` | `DisablePostEffects` | | Names of extra effects to turn off, e.g. `AmbientOcclusion,MotionBlur,FXAA` |
 
 `acmvr.log`, in the same folder, records what the mod is doing. Include it with any bug report.
