@@ -20,7 +20,7 @@ The game itself stays untouched. A small launcher starts the normal `ACM.exe` an
 
 ## Installing
 
-1. Download the latest release zip and extract the `ACMVR` folder into the game folder, so you get
+1. Download the latest zip, either from the Releases page or from [releases/ACMVR-0.30.1.zip](releases/ACMVR-0.30.1.zip) in this repo. Extract the `ACMVR` folder into the game folder, so you get
    `...\steamapps\common\Aliens Colonial Marines\ACMVR\`.
 2. In Steam, right-click the game > **Properties** > **General** > **Launch Options**, and enter:
    ```
