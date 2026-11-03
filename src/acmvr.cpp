@@ -49,7 +49,7 @@ static const GUID kIID_ID3D9VkInteropTexture = {0xd56344f5, 0x8d35, 0x46fd, {0x8
 static const GUID kIID_ID3D9VkInteropDevice  = {0x2eaa4b89, 0x0107, 0x4bdb, {0x87, 0xf7, 0x0f, 0x54, 0x1c, 0x49, 0x3c, 0xe0}};
 
 #define THISCALL __attribute__((thiscall))
-#define ACMVR_VERSION "0.30.1"
+#define ACMVR_VERSION "0.30.2"
 
 // ---------------------------------------------------------------------------
 // Basic types / math
@@ -527,7 +527,7 @@ static void LoadConfig() {
         if (tf) { if (fgets(c.hideBones, sizeof(c.hideBones), tf)) { char* nl = strpbrk(c.hideBones, "\r\n"); if (nl) *nl = 0; } fclose(tf); }
     }
     { char ap[MAX_PATH]; lstrcpyA(ap, g_dir); lstrcatA(ap, "acmvr_autoplay.txt"); if (GetFileAttributesA(ap) != INVALID_FILE_ATTRIBUTES) c.autoPlay = 1; }
-    c.frameCapRatio = IniFloat("VR", "FrameCapRatio", 1.25f);
+    c.frameCapRatio = IniFloat("VR", "FrameCapRatio", 1.0f);
     if (c.frameCapRatio < 1.0f || c.frameCapRatio > 3.0f) c.frameCapRatio = 1.25f;
     { char tp[MAX_PATH]; lstrcpyA(tp, g_dir); lstrcatA(tp, "acmvr_framecap.txt");   // test override
       FILE* tf = fopen(tp, "r"); if (tf) { char b[16]; if (fgets(b, sizeof(b), tf)) { float v = (float)atof(b); if (v >= 1.0f && v <= 3.0f) c.frameCapRatio = v; } fclose(tf); } }
