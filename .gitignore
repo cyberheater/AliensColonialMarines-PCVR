@@ -1,0 +1,8 @@
+build/
+*.o
+*.dll
+*.exe
+*.dmp
+*.log
+acmvr_capture/
+test/t
