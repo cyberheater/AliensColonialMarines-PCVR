@@ -49,7 +49,7 @@ static const GUID kIID_ID3D9VkInteropTexture = {0xd56344f5, 0x8d35, 0x46fd, {0x8
 static const GUID kIID_ID3D9VkInteropDevice  = {0x2eaa4b89, 0x0107, 0x4bdb, {0x87, 0xf7, 0x0f, 0x54, 0x1c, 0x49, 0x3c, 0xe0}};
 
 #define THISCALL __attribute__((thiscall))
-#define ACMVR_VERSION "0.30.0"
+#define ACMVR_VERSION "0.30.1"
 
 // ---------------------------------------------------------------------------
 // Basic types / math
@@ -3498,7 +3498,9 @@ static void TaaFrame(IDirect3DDevice9* dev, IDirect3DSurface9* bb) {
     static int logged; static unsigned okFrames;
     if (!logged) { logged = 1; Log("TAA: running (blend %.2f, jitter %.2f px)", g_cfg.taaBlend, g_cfg.taaJitter);
         FILE* f = fopen(g_taaMarker, "w"); if (f) { fputs(ACMVR_VERSION " TAA start-up in progress\n", f); fclose(f); } }
-    if (++okFrames == 900) { DeleteFileA(g_taaMarker); Log("TAA: stable for 900 frames"); }
+    // the crash this guards against came within the first frames: 120 good frames clear it (900 also caught
+    // sessions that were simply quit early, and turned TAA off for the next one)
+    if (++okFrames == 120) { DeleteFileA(g_taaMarker); Log("TAA: stable for 120 frames"); }
 }
 
 static bool VkEnsureEyeTextures(IDirect3DDevice9* dev) {
