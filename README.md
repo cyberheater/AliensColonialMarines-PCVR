@@ -30,6 +30,8 @@ The game itself stays untouched. A small launcher starts the normal `ACM.exe` an
 3. **Turn the Steam overlay off for this game** under Properties > General. In VR it takes over the headset and makes the game pause with a "Resume" menu.
 4. Start SteamVR, then press Play.
 
+The launcher also sets the game's own settings file (`Documents\My Games\Aliens Colonial Marines\PecanGame\Config\PecanEngine.ini`) for VR on every start. It removes the game's 62 fps cap and turns off depth of field, light shafts, distortion, lens flares, bloom and film grain, which break with two eyes side by side. It keeps a backup the first time it changes anything (`PecanEngine.ini.acmvr-backup`), and `TuneGameSettings=0` under `[Launcher]` turns this off. On a brand-new install, start the game once without the mod so it creates that file.
+
 To play without VR again, clear the launch options. [docs/LAUNCHER-README.txt](docs/LAUNCHER-README.txt) has more detail.
 
 ### Quest 3 (Steam Link)

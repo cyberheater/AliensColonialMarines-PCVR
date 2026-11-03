@@ -222,6 +222,48 @@ static bool RunLauncherWindow() {
     return g_uiResult == 1;
 }
 
+
+// The game's own settings file (Documents\My Games\...\PecanEngine.ini): a fresh install caps the game at 62 fps
+// (frame smoothing) and turns on screen effects that break with two eyes side by side (light shafts, depth of field,
+// distortion, lens flares, bloom). Set the VR-friendly values before each start; the first change keeps a backup.
+static void TuneEngineIni() {
+    if (!GetPrivateProfileIntW(L"Launcher", L"TuneGameSettings", 1, g_ini)) { Log("Game settings: left alone (TuneGameSettings=0)"); return; }
+    typedef HRESULT(WINAPI* SHGFP_t)(HWND, int, HANDLE, DWORD, LPWSTR);
+    HMODULE sh = LoadLibraryW(L"shell32.dll");
+    SHGFP_t gfp = sh ? (SHGFP_t)GetProcAddress(sh, "SHGetFolderPathW") : NULL;
+    wchar_t docs[MAX_PATH] = L"";
+    if (!gfp || FAILED(gfp(NULL, 0x0005 /*CSIDL_PERSONAL*/, NULL, 0, docs))) { Log("Game settings: Documents folder not found"); return; }
+    wchar_t ini[MAX_PATH], bak[MAX_PATH];
+    _snwprintf(ini, MAX_PATH, L"%s\\My Games\\Aliens Colonial Marines\\PecanGame\\Config\\PecanEngine.ini", docs);
+    _snwprintf(bak, MAX_PATH, L"%s.acmvr-backup", ini);
+    if (!Exists(ini)) { Log("Game settings: PecanEngine.ini not there yet (the game creates it on its first start) - start once more after this"); return; }
+    static const wchar_t* set[][3] = {
+        {L"Engine.Engine", L"bSmoothFrameRate", L"FALSE"},        // no 62 fps cap: the headset paces the game
+        {L"Engine.Engine", L"MaxSmoothedFrameRate", L"125"},
+        {L"SystemSettings", L"DepthOfField", L"False"},           // screen effects that misbehave across two eyes
+        {L"SystemSettings", L"bAllowLightShafts", L"False"},
+        {L"SystemSettings", L"Distortion", L"False"},
+        {L"SystemSettings", L"FilteredDistortion", L"False"},
+        {L"SystemSettings", L"LensFlares", L"False"},
+        {L"SystemSettings", L"Bloom", L"False"},
+        {L"SystemSettings", L"bUseFilmGrain", L"False"},
+        {L"SystemSettings", L"DynamicDecals", L"False"},          // lighter, as played and tested
+        {L"SystemSettings", L"DetailMode", L"1"},
+        {L"SystemSettings", L"MaxShadows", L"2"},
+        {L"SystemSettings", L"WindowMode", L"1"},
+    };
+    int changed = 0;
+    for (auto& e : set) {
+        wchar_t cur[64]; GetPrivateProfileStringW(e[0], e[1], L"", cur, 64, ini);
+        if (!_wcsicmp(cur, e[2])) continue;
+        if (!changed && !Exists(bak)) { CopyFileW(ini, bak, TRUE); Log("Game settings: backup saved as PecanEngine.ini.acmvr-backup"); }
+        WritePrivateProfileStringW(e[0], e[1], e[2], ini);
+        char a[160]; _snprintf(a, sizeof(a), "%ls %ls -> %ls", e[1], cur[0] ? cur : L"(missing)", e[2]); Log("Game settings: %s", a);
+        changed++;
+    }
+    if (!changed) Log("Game settings: already set for VR");
+}
+
 extern "C" int WINAPI LauncherMain() {
     GetModuleFileNameW(NULL, g_dir, MAX_PATH);
     wchar_t* sl = wcsrchr(g_dir, L'\\'); if (sl) sl[1] = 0;
@@ -271,6 +313,7 @@ extern "C" int WINAPI LauncherMain() {
         wcscat(full, r);
         Log("Resolution %d%% of SteamVR's %ux%u -> %ux%u per eye", g_scale, g_vrW, g_vrH, w, h);
     }
+    TuneEngineIni();
     _snwprintf(cmd, 4096, L"\"%s\" %s", exe, full);
     wchar_t wd[MAX_PATH]; wcscpy(wd, exe); wchar_t* ws = wcsrchr(wd, L'\\'); if (ws) *ws = 0;
     { char a[4096]; WideCharToMultiByte(CP_UTF8, 0, cmd, -1, a, sizeof(a), NULL, NULL); Log("Starting: %s", a); }
