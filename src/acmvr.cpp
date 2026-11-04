@@ -49,7 +49,7 @@ static const GUID kIID_ID3D9VkInteropTexture = {0xd56344f5, 0x8d35, 0x46fd, {0x8
 static const GUID kIID_ID3D9VkInteropDevice  = {0x2eaa4b89, 0x0107, 0x4bdb, {0x87, 0xf7, 0x0f, 0x54, 0x1c, 0x49, 0x3c, 0xe0}};
 
 #define THISCALL __attribute__((thiscall))
-#define ACMVR_VERSION "0.30.4"
+#define ACMVR_VERSION "0.30.5"
 
 // ---------------------------------------------------------------------------
 // Basic types / math
@@ -1867,6 +1867,15 @@ static float LevelGunRef(float* q) {
     M3ToQuat(Mul(Rf, R), q);
     return ang * 57.29578f;
 }
+static bool ReadL2W(void* arms, M3* Rc, V3* org, float* sc) {
+    if (g_offL2W < 0) { void* lp = FindPropIn(arms, "LocalToWorldBoneAtom"); if (lp) g_offL2W = *(int*)((BYTE*)lp + g_propOffField); }
+    if (g_offL2W < 0) return false;
+    const float* L = (const float*)((BYTE*)arms + g_offL2W);
+    if (L[7] < 1e-4f) return false;
+    *Rc = QuatToM3(L); *org = mk(L[4], L[5], L[6]); *sc = L[7];
+    return true;
+}
+static void ForceUpdateArms(void* arms);
 static void LockGun(void* arms, void* pawn) {
     if (!g_cfg.lockGun || !arms) return;
     if (g_nGunChain < 0) {
@@ -1910,6 +1919,25 @@ static void LockGun(void* arms, void* pawn) {
     // delta that takes the gun bone from its animated pose back to the recorded one
     M3 Rref = QuatToM3(g_gunRef), Rcur = QuatToM3(G);
     M3 D = Mul(Rref, Tr(Rcur));
+    if (g_cfg.wristTwist && g_handValid) {
+        // The game keeps the view-model arms level whatever roll we give them, so twist the gun and right hand
+        // ourselves: turn them about the arms' forward axis by whatever roll the controller has that the arms don't.
+        ForceUpdateArms(arms);
+        M3 Rc; V3 org; float sc;
+        if (ReadL2W(arms, &Rc, &org, &sc)) {
+            Basis cb; cb.f = mk(Rc.m[0][0], Rc.m[1][0], Rc.m[2][0]); cb.r = mk(Rc.m[0][1], Rc.m[1][1], Rc.m[2][1]);
+            cb.u = mk(Rc.m[0][2], Rc.m[1][2], Rc.m[2][2]);
+            FRotator cr = BasisToRot(cb);
+            int dr = wrap16(g_handRot.Roll - cr.Roll);
+            float a = dr * (PI_F / 32768.0f), c = fcos(a), s = fsin(a);
+            M3 Rx; memset(&Rx, 0, sizeof(Rx));
+            Rx.m[0][0] = 1; Rx.m[1][1] = c; Rx.m[1][2] = -s; Rx.m[2][1] = s; Rx.m[2][2] = c;
+            D = Mul(Rx, D);
+            static DWORD t0; DWORD nw = GetTickCount();
+            if (nw - t0 > 10000) { t0 = nw; Log("Wrist twist: controller roll %.0f deg, arms roll %.0f deg, gun turned %.0f deg",
+                g_handRot.Roll * (360.0f / 65536.0f), cr.Roll * (360.0f / 65536.0f), dr * (360.0f / 65536.0f)); }
+        }
+    }
     V3 pcur = mk(G[4], G[5], G[6]), pref = mk(g_gunRef[4], g_gunRef[5], g_gunRef[6]);
     for (int k = 0; k < g_nGunChain; k++) {
         float* A = (float*)((BYTE*)sb->data + 32 * g_gunChain[k]);
@@ -1921,14 +1949,6 @@ static void LockGun(void* arms, void* pawn) {
 }
 // ---- right hand on the controller: measure where the right hand bone ends up and shift the whole arm model ----
 static int g_rightHandBone = -2;
-static bool ReadL2W(void* arms, M3* Rc, V3* org, float* sc) {
-    if (g_offL2W < 0) { void* lp = FindPropIn(arms, "LocalToWorldBoneAtom"); if (lp) g_offL2W = *(int*)((BYTE*)lp + g_propOffField); }
-    if (g_offL2W < 0) return false;
-    const float* L = (const float*)((BYTE*)arms + g_offL2W);
-    if (L[7] < 1e-4f) return false;
-    *Rc = QuatToM3(L); *org = mk(L[4], L[5], L[6]); *sc = L[7];
-    return true;
-}
 static void AlignRightHand(void* arms, float* T) {
     if (!g_cfg.alignRightHand || !arms || !T) return;
     if (g_rightHandBone == -2) { if (g_nBones <= 0) ArmHideInit(arms); g_rightHandBone = FindBone("Bip01-R-Hand"); }
