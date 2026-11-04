@@ -49,7 +49,7 @@ static const GUID kIID_ID3D9VkInteropTexture = {0xd56344f5, 0x8d35, 0x46fd, {0x8
 static const GUID kIID_ID3D9VkInteropDevice  = {0x2eaa4b89, 0x0107, 0x4bdb, {0x87, 0xf7, 0x0f, 0x54, 0x1c, 0x49, 0x3c, 0xe0}};
 
 #define THISCALL __attribute__((thiscall))
-#define ACMVR_VERSION "0.30.3"
+#define ACMVR_VERSION "0.30.4"
 
 // ---------------------------------------------------------------------------
 // Basic types / math
@@ -126,7 +126,7 @@ struct Config {
     int menusOnScreen, cutscenesOnScreen, largeWindow, dpiAware, weaponFollowsHand, learnHeadCallers, screenCrop;
     float gunX, gunY, gunZ, armsX, armsY, armsZ, corrPitch, corrYaw, gunScale;
     int corrOnController;
-    int armsDirect, hideCrosshair, hideHUD, fastCopy, autoCapture, showMessages, showFps, gpuWait, offAxis, offAxisV, asyncSubmit, frameCap, useDXVK, noSteamVkLayers, dxvkVulkanSubmit, vkSubmitPose, autoPlay, vkPlainEyes, vkColorSpace, vkReportSrgb, calibTap, leftHandTracking, wheelRightStick, handsOnly, lockGun, noLensEffects, alignRightHand, hudScanlineOff, taa, levelGun, dummyUse, keepFocus, earlyVr, hideIdleLeftHand, dpadOnRightClick, extraButtonsMenu, gunUpAxis, stickUpDown, heightOnGameplay, faceChords, autoResume, keepForeground, focusNudge, inputLog, hideUpperArms, dynRes, dynMin, dynMax, boostThreads, moveWithHead, overlaysOnScreen, objectivesOnScreen;
+    int armsDirect, hideCrosshair, hideHUD, fastCopy, autoCapture, showMessages, showFps, gpuWait, offAxis, offAxisV, asyncSubmit, frameCap, useDXVK, noSteamVkLayers, dxvkVulkanSubmit, vkSubmitPose, autoPlay, vkPlainEyes, vkColorSpace, vkReportSrgb, calibTap, leftHandTracking, wheelRightStick, handsOnly, lockGun, noLensEffects, alignRightHand, hudScanlineOff, taa, levelGun, dummyUse, keepFocus, earlyVr, hideIdleLeftHand, dpadOnRightClick, extraButtonsMenu, gunUpAxis, stickUpDown, heightOnGameplay, faceChords, autoResume, keepForeground, focusNudge, inputLog, hideUpperArms, dynRes, dynMin, dynMax, boostThreads, moveWithHead, overlaysOnScreen, objectivesOnScreen, wristTwist;
     float objDown, objScale, objBack, hudScale, objRight, hudCX, hudCY;
     float dynTargetGpu, lhOff[3], rhOff[3];
     char postFxOff[256], postFxOn[64];
@@ -480,6 +480,7 @@ static void LoadConfig() {
     c.lhOff[1] = IniFloat("Arms", "LeftHandOffsetRight", 0.0f);
     c.lhOff[2] = IniFloat("Arms", "LeftHandOffsetUp", 0.0f);
     c.alignRightHand = IniInt("Arms", "RightHandOnController", 1);
+    c.wristTwist = IniInt("Arms", "GunFollowsWristTwist", 1);   // 0 = the gun stays level however the wrist turns (old behaviour)
     c.levelGun = IniInt("Arms", "StraightenGunTwist", 1);
     c.keepFocus = IniInt("Controls", "KeepGameFocused", 1);
     c.earlyVr = IniInt("VR", "ConnectEarly", 0);
@@ -1215,7 +1216,7 @@ static void RenderView(void* self, FVector* loc, FRotator* rot) {
             aim = BasisToRot(HW);
             V3 rel = mul(toWorld(Y, sub(hp, positional ? mk(0, 0, 0) : headPos)), g_worldScale);
             g_handLoc.X = camLoc.X + rel.x; g_handLoc.Y = camLoc.Y + rel.y; g_handLoc.Z = camLoc.Z + rel.z;
-            g_handRot = aim; g_handRot.Roll = 0;
+            g_handRot = aim; if (!g_cfg.wristTwist) g_handRot.Roll = 0;   // twist the wrist and the gun turns with it
             // place a virtual game camera behind the hand so the game's gun model lands in the hand
             Basis G = RotToBasis(g_handRot);
             V3 gc = sub(mk(g_handLoc.X, g_handLoc.Y, g_handLoc.Z),
@@ -1943,6 +1944,13 @@ static void AlignRightHand(void* arms, float* T) {
     V3 target = add(mk(g_handLoc.X, g_handLoc.Y, g_handLoc.Z),
                     add(add(mul(G.f, g_cfg.rhOff[0]), mul(G.r, g_cfg.rhOff[1])), mul(G.u, g_cfg.rhOff[2])));
     V3 e = sub(handW, target);
+    {   // how far the game's own arm pose leaves the hand from the controller (arm-reach check), every 10 s
+        static DWORD t0; static float worst; static int skips;
+        float d = fsqrt(dot(e, e)); if (d > worst) worst = d;
+        if (dot(e, e) > 300.0f * 300.0f) skips++;
+        DWORD now = GetTickCount();
+        if (now - t0 > 10000) { if (t0) Log("Right hand: largest correction %.0f units in 10 s%s", worst, skips ? " (some frames skipped as too far)" : ""); t0 = now; worst = 0; skips = 0; }
+    }
     if (dot(e, e) > 300.0f * 300.0f) return;     // nonsense (teleport / level change): leave it
     T[0] -= e.x; T[1] -= e.y; T[2] -= e.z;
     g_gunCamLoc.X -= e.x; g_gunCamLoc.Y -= e.y; g_gunCamLoc.Z -= e.z;   // the aim follows the gun
