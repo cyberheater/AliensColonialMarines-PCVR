@@ -39,6 +39,19 @@ static bool HasArgI(const wchar_t* args, const wchar_t* key) {   // case-insensi
     return false;
 }
 
+static bool IsElevated() {
+    typedef BOOL(WINAPI * OPT_t)(HANDLE, DWORD, PHANDLE);
+    typedef BOOL(WINAPI * GTI_t)(HANDLE, TOKEN_INFORMATION_CLASS, LPVOID, DWORD, PDWORD);
+    HMODULE a = LoadLibraryW(L"advapi32.dll");
+    OPT_t opt = a ? (OPT_t)GetProcAddress(a, "OpenProcessToken") : NULL;
+    GTI_t gti = a ? (GTI_t)GetProcAddress(a, "GetTokenInformation") : NULL;
+    if (!opt || !gti) return false;
+    HANDLE t; TOKEN_ELEVATION e = {0}; DWORD n = 0;
+    if (!opt(GetCurrentProcess(), TOKEN_QUERY, &t)) return false;
+    BOOL ok = gti(t, TokenElevation, &e, sizeof(e), &n);
+    CloseHandle(t);
+    return ok && e.TokenIsElevated;
+}
 // Splits our command line into the game exe (first argument, if it is an .exe) and the rest.
 static void ParseCommandLine(wchar_t* exe, wchar_t* rest) {
     exe[0] = rest[0] = 0;
@@ -355,7 +368,24 @@ extern "C" int WINAPI LauncherMain() {
     STARTUPINFOW si; memset(&si, 0, sizeof(si)); si.cb = sizeof(si);
     PROCESS_INFORMATION pi; memset(&pi, 0, sizeof(pi));
     if (!CreateProcessW(exe, cmd, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, wd, &si, &pi)) {
-        wchar_t m[600]; _snwprintf(m, 600, L"Couldn't start the game (error %lu):\n%s", GetLastError(), exe);
+        DWORD err = GetLastError();
+        // 740: the game is set to "Run as administrator" (Compatibility tab). A non-admin launcher can't start it
+        // or load the mod into it, so start ourselves again as administrator with the same arguments.
+        if (err == ERROR_ELEVATION_REQUIRED && !IsElevated()) {
+            Log("The game needs administrator rights (error 740) - restarting the launcher as administrator");
+            typedef HINSTANCE(WINAPI * ShellExecuteW_t)(HWND, LPCWSTR, LPCWSTR, LPCWSTR, LPCWSTR, INT);
+            HMODULE sh = LoadLibraryW(L"shell32.dll");
+            ShellExecuteW_t se = sh ? (ShellExecuteW_t)GetProcAddress(sh, "ShellExecuteW") : NULL;
+            wchar_t self[MAX_PATH]; GetModuleFileNameW(NULL, self, MAX_PATH);
+            const wchar_t* c = GetCommandLineW();
+            if (*c == L'"') { c++; while (*c && *c != L'"') c++; if (*c) c++; }
+            else while (*c && *c != L' ' && *c != L'\t') c++;
+            while (*c == L' ' || *c == L'\t') c++;
+            if (se && (INT_PTR)se(NULL, L"runas", self, c, NULL, SW_SHOWNORMAL) > 32) ExitProcess(0);
+            Log("Restart as administrator was cancelled or failed");
+        }
+        SetLastError(err);
+        wchar_t m[600]; _snwprintf(m, 600, L"Couldn't start the game (error %lu):\n%s%s", GetLastError(), exe, GetLastError() == 740 ? L"\n\nThe game is set to run as administrator. Untick \"Run this program as an administrator\" on ACM.exe (Properties > Compatibility), or allow the launcher to run as administrator." : L"");
         Fail(m); ExitProcess(1);
     }
     // Load the mod in the game process: queue LoadLibraryW on the game's first thread. It runs once Windows has
