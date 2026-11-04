@@ -16,7 +16,7 @@ The game itself stays untouched. A small launcher starts the normal `ACM.exe` an
 - **Menus, pause and cutscenes** appear on a large virtual screen.
 - **Interface sized for VR:** the HUD is shrunk towards the centre of view, and the objectives/scoreboard panel is moved lower and made smaller.
 - **Bigger pickup range and width** for the "use" prompt.
-- **Launcher with a resolution slider** that reads the headset's resolution from SteamVR.
+- **Launcher with a resolution slider** that reads the headset's resolution from SteamVR, and a smooth/snap turning option.
 
 ## Installing
 

@@ -137,7 +137,7 @@ static bool VrRenderSizeOnce(UINT* w, UINT* h, bool quiet) {
 #define TBM_SETPAGESIZE (WM_USER + 21)
 #define TBM_SETLINESIZE (WM_USER + 23)
 enum { ID_SLIDER = 100, ID_SIZE, ID_INFO, ID_SKIP };
-static UINT g_vrW, g_vrH; static int g_scale = 100, g_uiResult = -1, g_fixedRes; static HWND g_hSize, g_hSlider, g_hSkip, g_hWarn; static bool g_skipNext, g_overlayWarn;
+static UINT g_vrW, g_vrH; static int g_scale = 100, g_uiResult = -1, g_fixedRes; static HWND g_hSize, g_hSlider, g_hSkip, g_hWarn, g_hSmooth; static int g_snapDeg = 30; static bool g_skipNext, g_overlayWarn;
 static int Sc(int v) { static int dpi; if (!dpi) { HDC dc = GetDC(NULL); dpi = GetDeviceCaps(dc, LOGPIXELSX); ReleaseDC(NULL, dc); } return MulDiv(v, dpi, 96); }
 static void EyeSize(int scale, UINT* w, UINT* h) { *w = (UINT)((g_vrW * scale / 100 + 1) & ~1u); *h = (UINT)((g_vrH * scale / 100 + 1) & ~1u); }
 static void UpdateSizeLabel() {
@@ -154,7 +154,18 @@ static LRESULT CALLBACK UiProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if ((HWND)l == g_hSlider) { int p = (int)SendMessageW(g_hSlider, TBM_GETPOS, 0, 0); p = (p + 2) / 5 * 5; g_scale = p; UpdateSizeLabel(); }
         return 0;
     case WM_COMMAND:
-        if (LOWORD(w) == IDOK) { g_uiResult = 1; g_skipNext = SendMessageW(g_hSkip, BM_GETCHECK, 0, 0) == BST_CHECKED; DestroyWindow(h); }
+        if (LOWORD(w) == IDOK) {
+            g_uiResult = 1; g_skipNext = SendMessageW(g_hSkip, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            // smooth turning = SnapTurnDegrees 0; unticking goes back to the last snap angle (30 by default)
+            bool smooth = SendMessageW(g_hSmooth, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            int last = GetPrivateProfileIntW(L"Launcher", L"LastSnapTurnDegrees", 30, g_ini); if (last <= 0) last = 30;
+            if (g_snapDeg > 0) last = g_snapDeg;
+            wchar_t v[16]; _snwprintf(v, 16, L"%d", smooth ? 0 : last);
+            WritePrivateProfileStringW(L"Controls", L"SnapTurnDegrees", v, g_ini);
+            _snwprintf(v, 16, L"%d", last); WritePrivateProfileStringW(L"Launcher", L"LastSnapTurnDegrees", v, g_ini);
+            Log("Turning: %s", smooth ? "smooth" : "snap");
+            DestroyWindow(h);
+        }
         else if (LOWORD(w) == IDCANCEL) { g_uiResult = 0; DestroyWindow(h); }
         return 0;
     case WM_CLOSE: g_uiResult = 0; DestroyWindow(h); return 0;
@@ -176,7 +187,8 @@ static bool RunLauncherWindow() {
     wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW); wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
     wc.hIcon = LoadIconW(hi, MAKEINTRESOURCEW(1));
     RegisterClassW(&wc);
-    int W = Sc(470), H = Sc(g_overlayWarn ? 300 : 250);
+    int W = Sc(470), H = Sc(g_overlayWarn ? 326 : 276);
+    g_snapDeg = GetPrivateProfileIntW(L"Controls", L"SnapTurnDegrees", 30, g_ini);
     RECT r = {0, 0, W, H}; AdjustWindowRect(&r, WS_CAPTION | WS_SYSMENU, FALSE);
     int ww = r.right - r.left, wh = r.bottom - r.top;
     HWND win = CreateWindowExW(0, wc.lpszClassName, L"Aliens: Colonial Marines VR", WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
@@ -205,12 +217,16 @@ static bool RunLauncherWindow() {
                                 WS_CHILD | WS_VISIBLE, x, y, cw, Sc(48), win, NULL, hi, NULL);
         y += Sc(52);
     } else y += Sc(4);
+    g_hSmooth = CreateWindowW(L"BUTTON", L"Smooth turning with the right stick (untick for snap turns)", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                              x, y, cw, Sc(22), win, NULL, hi, NULL);
+    SendMessageW(g_hSmooth, BM_SETCHECK, g_snapDeg <= 0 ? BST_CHECKED : BST_UNCHECKED, 0);
+    y += Sc(26);
     g_hSkip = CreateWindowW(L"BUTTON", L"Start the game straight away next time (hold Shift to see this again)", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
                             x, y, cw, Sc(22), win, (HMENU)ID_SKIP, hi, NULL);
     y = H - Sc(48);
     HWND bp = CreateWindowW(L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, W - x - Sc(190), y, Sc(90), Sc(30), win, (HMENU)IDOK, hi, NULL);
     HWND bc = CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP, W - x - Sc(90), y, Sc(90), Sc(30), win, (HMENU)IDCANCEL, hi, NULL);
-    HWND all[] = {g_hSlider, g_hSize, t2, g_hSkip, bp, bc, g_hWarn};
+    HWND all[] = {g_hSlider, g_hSize, t2, g_hSmooth, g_hSkip, bp, bc, g_hWarn};
     for (HWND c : all) if (c) SendMessageW(c, WM_SETFONT, (WPARAM)f, 0);
     UpdateSizeLabel();
     ShowWindow(win, SW_SHOW); SetForegroundWindow(win); SetFocus(bp);
