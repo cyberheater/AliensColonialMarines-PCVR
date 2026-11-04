@@ -49,7 +49,7 @@ static const GUID kIID_ID3D9VkInteropTexture = {0xd56344f5, 0x8d35, 0x46fd, {0x8
 static const GUID kIID_ID3D9VkInteropDevice  = {0x2eaa4b89, 0x0107, 0x4bdb, {0x87, 0xf7, 0x0f, 0x54, 0x1c, 0x49, 0x3c, 0xe0}};
 
 #define THISCALL __attribute__((thiscall))
-#define ACMVR_VERSION "0.30.5"
+#define ACMVR_VERSION "0.30.6"
 
 // ---------------------------------------------------------------------------
 // Basic types / math
@@ -1931,7 +1931,7 @@ static void LockGun(void* arms, void* pawn) {
             int dr = wrap16(g_handRot.Roll - cr.Roll);
             float a = dr * (PI_F / 32768.0f), c = fcos(a), s = fsin(a);
             M3 Rx; memset(&Rx, 0, sizeof(Rx));
-            Rx.m[0][0] = 1; Rx.m[1][1] = c; Rx.m[1][2] = -s; Rx.m[2][1] = s; Rx.m[2][2] = c;
+            Rx.m[0][0] = 1; Rx.m[1][1] = c; Rx.m[1][2] = s; Rx.m[2][1] = -s; Rx.m[2][2] = c;
             D = Mul(Rx, D);
             static DWORD t0; DWORD nw = GetTickCount();
             if (nw - t0 > 10000) { t0 = nw; Log("Wrist twist: controller roll %.0f deg, arms roll %.0f deg, gun turned %.0f deg",
