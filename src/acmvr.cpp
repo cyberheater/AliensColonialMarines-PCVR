@@ -49,7 +49,7 @@ static const GUID kIID_ID3D9VkInteropTexture = {0xd56344f5, 0x8d35, 0x46fd, {0x8
 static const GUID kIID_ID3D9VkInteropDevice  = {0x2eaa4b89, 0x0107, 0x4bdb, {0x87, 0xf7, 0x0f, 0x54, 0x1c, 0x49, 0x3c, 0xe0}};
 
 #define THISCALL __attribute__((thiscall))
-#define ACMVR_VERSION "0.30.2"
+#define ACMVR_VERSION "0.30.3"
 
 // ---------------------------------------------------------------------------
 // Basic types / math
@@ -321,7 +321,8 @@ static V3 g_lhandLoc; static Basis g_lhandB; static int g_lhandValid;   // off-h
 static unsigned g_renderCalls;
 static int g_frameStereo;      // this frame's view was stereo (game thread)
 static FVector g_gunCamLoc;     // virtual camera that puts the game's 1st-person gun in the hand
-static float g_aimPitch;        // runtime-adjustable copies of the ini values
+static float g_aimPitch;
+static char g_ctlType[48]; static volatile LONG g_ctlTypeKnown;   // kind of controller (SteamVR's controller type)        // runtime-adjustable copies of the ini values
 static float g_gunX, g_gunY, g_gunZ;
 static float g_worldScale = 50.0f;
 static float g_armsX, g_armsY, g_armsZ;
@@ -2862,6 +2863,7 @@ static DWORD WINAPI hkXInputGetState(DWORD user, XINPUT_STATE* st) {
                 _snprintf(v, sizeof(v), "%.1f", g_armsY); WritePrivateProfileStringA("Controls", "ArmsOffsetRight", v, g_ini);
                 _snprintf(v, sizeof(v), "%.1f", g_armsZ); WritePrivateProfileStringA("Controls", "ArmsOffsetUp", v, g_ini);
                 _snprintf(v, sizeof(v), "%.1f", g_aimPitch); WritePrivateProfileStringA("Controls", "AimPitchOffsetDeg", v, g_ini);
+                if (g_ctlType[0]) { char key[96]; _snprintf(key, sizeof(key), "AimPitchOffsetDeg.%s", g_ctlType); WritePrivateProfileStringA("Controls", key, v, g_ini); }
                 _snprintf(v, sizeof(v), "%.3f", g_gunScale); WritePrivateProfileStringA("Controls", "GunScale", v, g_ini);
                 _snprintf(v, sizeof(v), "%.2f", g_corrPitch); WritePrivateProfileStringA("Controls", "BulletCorrectionUpDeg", v, g_ini);
                 _snprintf(v, sizeof(v), "%.2f", g_corrYaw); WritePrivateProfileStringA("Controls", "BulletCorrectionRightDeg", v, g_ini);
@@ -3864,6 +3866,11 @@ static void UpdateOverlayCrop() {
     if (g_cfg.screenCrop && aspect > want + 0.01f) { float h = 0.5f * want / aspect; b.uMin = 0.5f - h; b.uMax = 0.5f + h; }
     g_ovl->SetOverlayTextureBounds(g_overlay, &b);
 }
+// Gun tilt per kind of controller, where it's known from the headset. -999 = use the general AimPitchOffsetDeg.
+static float AimPitchDefaultFor(const char* type) {
+    (void)type;   // none yet: PS VR2 Sense and Quest Touch both play well with the general -42.1 (fill in others as they're tuned)
+    return -999.0f;
+}
 static bool WaitAndUpdatePoses() {
     vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount];
     double tw = QpcMs();
@@ -3876,6 +3883,21 @@ static bool WaitAndUpdatePoses() {
     if (ir >= (LONG)vr::k_unMaxTrackedDeviceCount) ir = -1;
     InterlockedExchange(&g_ctrlIdx[0], il);
     InterlockedExchange(&g_ctrlIdx[1], ir);
+    if (!g_ctlTypeKnown && ir >= 0) {   // which controllers? each kind reports its pose at its own angle
+        char t[64] = "";
+        g_sys_vr->GetStringTrackedDeviceProperty((vr::TrackedDeviceIndex_t)ir, vr::Prop_ControllerType_String, t, sizeof(t));
+        if (t[0]) {
+            for (char* q = t; *q; q++) if (!((*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z') || (*q >= '0' && *q <= '9') || *q == '_')) *q = '_';
+            lstrcpynA(g_ctlType, t, sizeof(g_ctlType));
+            char key[96]; _snprintf(key, sizeof(key), "AimPitchOffsetDeg.%s", g_ctlType);
+            char v[32]; GetPrivateProfileStringA("Controls", key, "", v, sizeof(v), g_ini);
+            float def = AimPitchDefaultFor(g_ctlType);
+            if (v[0]) { g_aimPitch = (float)atof(v); Log("Controllers: %s - gun tilt %.1f (from %s)", g_ctlType, g_aimPitch, key); }
+            else if (def > -900) { g_aimPitch = def; Log("Controllers: %s - gun tilt %.1f (built-in for these controllers; calibrate to save your own)", g_ctlType, g_aimPitch); }
+            else Log("Controllers: %s - gun tilt %.1f (general AimPitchOffsetDeg; calibrate to save one for these controllers)", g_ctlType, g_aimPitch);
+            g_ctlTypeKnown = 1;
+        }
+    }
     const vr::TrackedDevicePose_t& hp = poses[vr::k_unTrackedDeviceIndex_Hmd];
     EnterCriticalSection(&g_poseCs);
     g_pose.hmdValid = hp.bPoseIsValid;
